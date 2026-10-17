@@ -3,55 +3,65 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Бомбардиры Сезона 2026</title>
+    <title>Бомбардиры и Рейтинг Сезона</title>
     <style>
         :root { --prm: #007bff; --suc: #28a745; --dng: #dc3545; --drk: #343a40; }
         body { font-family: -apple-system, sans-serif; margin: 10px; background: #f0f2f5; padding-bottom: 30px; }
-        .card { background: white; padding: 20px; border-radius: 12px; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        .card { background: white; padding: 15px; border-radius: 12px; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
         .flex-hdr { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-        h1 { font-size: 22px; margin: 0; color: var(--drk); }
+        h1 { font-size: 20px; margin: 0; color: var(--drk); }
         h2 { font-size: 16px; margin: 0 0 10px 0; color: #555; }
         .btn-set { background: #ffc107; border: none; padding: 10px 14px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 14px; }
         .btn-main { width: 100%; padding: 14px; font-size: 16px; background: var(--suc); color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 5px; }
         .btn-main:active { background: #1e7e34; }
         .btn-danger { background: var(--dng); }
         .btn-danger:active { background: #bd2130; }
+        
+        /* Стили интерактивной таблицы */
         table { width: 100%; border-collapse: collapse; text-align: center; margin-top: 10px; }
-        th, td { padding: 12px 8px; border-bottom: 1px solid #eee; font-size: 15px; }
-        th { background: var(--drk); color: white; }
+        th, td { padding: 10px 5px; border-bottom: 1px solid #eee; font-size: 13px; }
+        th { background: var(--drk); color: white; cursor: pointer; user-select: none; position: relative; }
+        th:active { background: #000; }
+        th.sort-asc::after { content: " ▲"; font-size: 10px; }
+        th.sort-desc::after { content: " ▼"; font-size: 10px; }
+        
         .admin-only { display: none; }
         body.is-admin .admin-only { display: block; }
         .sync-info { font-size: 13px; color: #666; margin-top: 8px; text-align: center; font-style: italic; }
+        .badge-rating { font-weight: bold; color: var(--prm); font-size: 14px; }
     </style>
 </head>
 <body>
 
     <div class="flex-hdr">
-        <h1>⚽ Бомбардиры Сезона</h1>
+        <h1>🏆 Статистика и Рейтинг Сезона</h1>
         <button class="btn-set" id="lock-btn" onclick="activateAdminMode()">🔑 Вход Админа</button>
     </div>
 
     <!-- ПАНЕЛЬ УПРАВЛЕНИЯ АДМИНА -->
     <div class="card admin-only">
         <h2>Панель управления сезоном</h2>
-        <button class="btn-main" onclick="syncLastGames()">🔄 Занести результаты последних игр</button>
-        <div class="sync-info" id="sync-status">Готовы к импорту данных из текущего турнира</div>
+        <button class="btn-main" onclick="syncLastGames()">🔄 Занести результаты и рассчитать рейтинг дня</button>
+        <div class="sync-info" id="sync-status">Готовы к импорту данных и начислению очков командам</div>
         <button class="btn-main btn-danger" style="margin-top: 15px; padding: 10px;" onclick="resetSeasonData()">🗑 Сбросить ВСЮ статистику сезона</button>
     </div>
 
-    <!-- ТАБЛИЦА БОМБАРДИРОВ СЕЗОНА -->
+    <!-- ТАБЛИЦА БОМБАРДИРОВ И РЕЙТИНГА СЕЗОНА -->
     <div class="card" style="overflow-x: auto;">
-        <h2>📊 Сводная таблица голов за весь сезон</h2>
+        <h2>📊 Сводный рейтинг (Нажмите на заголовок для сортировки)</h2>
         <table>
             <thead>
                 <tr>
-                    <th style="width: 12%;">Место</th>
-                    <th style="text-align: left; padding-left: 10px;">Игрок</th>
-                    <th style="width: 25%;">Голы всего</th>
+                    <th onclick="sortTable('rank')">№</th>
+                    <th style="text-align: left; padding-left: 10px;" onclick="sortTable('name')">Игрок</th>
+                    <th onclick="sortTable('goals')">Голы</th>
+                    <th onclick="sortTable('games')">Игры</th>
+                    <th onclick="sortTable('winPts')">Рейт.П</th>
+                    <th onclick="sortTable('avgRating')">Сред.Р</th>
                 </tr>
             </thead>
             <tbody id="season-scorers-body">
-                <tr><td colspan="3" style="color:#888; padding:20px;">Загрузка данных...</td></tr>
+                <tr><td colspan="6" style="color:#888; padding:20px;">Загрузка данных...</td></tr>
             </tbody>
         </table>
     </div>
@@ -61,6 +71,10 @@
 
     let seasonScorers = {}; 
     let processedMatchIds = []; 
+    
+    // Параметры текущей сортировки таблицы по умолчанию
+    let currentSortColumn = 'avgRating'; 
+    let currentSortDirection = 'desc'; 
 
     function activateAdminMode() {
         let pin = prompt("Введите пароль Администратора:");
@@ -87,25 +101,73 @@
         }
     }
 
+    // Умная функция интерактивной сортировки по столбцам
+    function sortTable(column) {
+        if (currentSortColumn === column) {
+            currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            currentSortColumn = column;
+            currentSortDirection = 'desc'; // По умолчанию числовые значения сортируем от большего к меньшему
+        }
+        
+        // Обновляем визуальные стрелочки в заголовках
+        let headers = document.querySelectorAll('th');
+        headers.forEach(function(th) {
+            th.classList.remove('sort-asc', 'sort-desc');
+        });
+        
+        renderSeasonTable();
+    }
+
     function renderSeasonTable() {
-        let sorted = Object.keys(seasonScorers)
-            .map(function(name) { return { name: name, goals: seasonScorers[name] }; })
-            .filter(function(p) { return p.goals > 0; })
-            .sort(function(a, b) { return b.goals - a.goals; });
+        let playersArray = Object.keys(seasonScorers).map(function(name) {
+            let p = seasonScorers[name];
+            let goals = p.goals || 0;
+            let gamesCount = p.games || 0;
+            let winPts = p.winPts || 0;
+            
+            // Расчет среднего рейтинга: (Рейтинг победителя + Голы) / Игры
+            let avg = gamesCount > 0 ? ((winPts + goals) / gamesCount) : 0;
+            // Округляем до двух знаков после запятой для красоты
+            avg = Math.round(avg * 100) / 100; 
+
+            return {
+                name: name,
+                goals: goals,
+                games: gamesCount,
+                winPts: winPts,
+                avgRating: avg
+            };
+        });
+
+        // Применяем выбранную сортировку к массиву данных
+        playersArray.sort(function(a, b) {
+            let valA = a[currentSortColumn];
+            let valB = b[currentSortColumn];
+
+            if (typeof valA === 'string') {
+                return currentSortDirection === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+            } else {
+                return currentSortDirection === 'asc' ? valA - valB : valB - valA;
+            }
+        });
 
         let tbody = document.getElementById('season-scorers-body');
         if (!tbody) return;
 
-        if (sorted.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="3" style="color:#888; padding:20px;">В этом сезоне голов еще не забивали</td></tr>';
+        if (playersArray.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="color:#888; padding:20px;">Статистики пока нет</td></tr>';
             return;
         }
 
-        tbody.innerHTML = sorted.map(function(p, idx) {
+        tbody.innerHTML = playersArray.map(function(p, idx) {
             return '<tr>' +
-                '<td><b>' + (idx + 1) + '</b></td>' +
+                '<td>' + (idx + 1) + '</td>' +
                 '<td style="text-align:left; padding-left:10px; font-weight:bold;">' + p.name + '</td>' +
-                '<td style="font-weight:bold; color:var(--suc); font-size:16px;">' + p.goals + '</td>' +
+                '<td>' + p.goals + '</td>' +
+                '<td>' + p.games + '</td>' +
+                '<td>' + p.winPts + '</td>' +
+                '<td><span class="badge-rating">' + p.avgRating.toFixed(2) + '</span></td>' +
             '</tr>';
         }).join('');
     }
@@ -125,24 +187,65 @@
             }
 
             let currentGames = Object.values(tournamentData.games);
-            let newMatchesCount = 0;
+            let currentTeams = tournamentData.teams || ["Команда 1", "Команда 2", "Команда 3"];
+            let currentTeamPlayers = tournamentData.teamPlayers || {};
+            
+            // 1. СЧИТАЕМ ИТОГОВЫЕ МЕСТА КОМАНД ТЕКУЩЕГО ТУРНИРНОГО ДНЯ
+            let dayStats = {};
+            currentTeams.forEach(function(t) {
+                dayStats[t] = { pts: 0, gf: 0 };
+            });
 
+            currentGames.forEach(function(g) {
+                if (g && dayStats[g.t1] && dayStats[g.t2]) {
+                    dayStats[g.t1].gf += g.s1;
+                    dayStats[g.t2].gf += g.s2;
+                    if (g.s1 > g.s2) { dayStats[g.t1].pts += 3; } 
+                    else if (g.s1 < g.s2) { dayStats[g.t2].pts += 3; } 
+                    else { dayStats[g.t1].pts += 1; dayStats[g.t2].pts += 1; }
+                }
+            });
+
+            // Сортируем команды дня: очки, затем забитые голы
+            let sortedTeamsOfDay = [...currentTeams].sort(function(a, b) {
+                if (dayStats[b].pts !== dayStats[a].pts) return dayStats[b].pts - dayStats[a].pts;
+                return dayStats[b].gf - dayStats[a].gf;
+            });
+
+            let firstPlaceTeam = sortedTeamsOfDay[0];
+            let secondPlaceTeam = sortedTeamsOfDay[1];
+
+            let newMatchesCount = 0;
+            let activePlayersToday = new Set(); // Список игроков, вышедших на поле сегодня
+
+            // 2. РАСПРЕДЕЛЯЕМ ГОЛЫ И ФИКСИРУЕМ УЧАСТИЕ В МАТЧАХ
             currentGames.forEach(function(game) {
                 if (game && game.id && processedMatchIds.indexOf(game.id) === -1) {
-                    
+// Собираем голы первой команды и отмечаем игроков
                     if (game.scorers1) {
                         game.scorers1.forEach(function(player) {
-                            let key = player.trim(); 
-                            seasonScorers[key] = (seasonScorers[key] || 0) + 1;
+                            let key = player.trim();
+                            if (!seasonScorers[key]) seasonScorers[key] = { goals: 0, games: 0, winPts: 0 };
+                            seasonScorers[key].goals += 1;
                         });
                     }
+                    
+                    // Фиксируем участие всех 5 игроков первой команды в турнирном дне
+                    let pList1 = currentTeamPlayers[game.t1] || [];
+                    pList1.forEach(function(p) { activePlayersToday.add(p.trim()); });
 
+                    // Собираем голы второй команды и отмечаем игроков
                     if (game.scorers2) {
                         game.scorers2.forEach(function(player) {
                             let key = player.trim();
-                            seasonScorers[key] = (seasonScorers[key] || 0) + 1;
+                            if (!seasonScorers[key]) seasonScorers[key] = { goals: 0, games: 0, winPts: 0 };
+                            seasonScorers[key].goals += 1;
                         });
                     }
+                    
+                    // Фиксируем участие всех 5 игроков второй команды в турнирном дне
+                    let pList2 = currentTeamPlayers[game.t2] || [];
+                    pList2.forEach(function(p) { activePlayersToday.add(p.trim()); });
 
                     processedMatchIds.push(game.id);
                     newMatchesCount++;
@@ -150,30 +253,49 @@
             });
 
             if (newMatchesCount === 0) {
-                alert("Все матчи текущего турнира уже были занесены ранее!");
+                alert("Все матчи этого турнирного дня уже были занесены ранее!");
                 document.getElementById('sync-status').innerText = "Новых матчей не обнаружено.";
                 return;
             }
 
+            // 3. НАЧИСЛЯЕМ +1 К ИГРАМ И ДОБАВЛЯЕМ БАЛЛЫ ЗА 1 И 2 МЕСТА
+            activePlayersToday.forEach(function(player) {
+                if (!seasonScorers[player]) seasonScorers[player] = { goals: 0, games: 0, winPts: 0 };
+                
+                // Каждому сыгравшему игроку добавляем +1 к количеству игр
+                seasonScorers[player].games += 1; 
+
+                // Проверяем, в какой команде состоял игрок сегодня и добавляем очки рейтинга
+                let playersOfTeam1 = (currentTeamPlayers[firstPlaceTeam] || []).map(function(p){ return p.trim(); });
+                let playersOfTeam2 = (currentTeamPlayers[secondPlaceTeam] || []).map(function(p){ return p.trim(); });
+
+                if (playersOfTeam1.indexOf(player) !== -1) {
+                    seasonScorers[player].winPts += 3; // +3 очка каждому за 1 место
+                } else if (playersOfTeam2.indexOf(player) !== -1) {
+                    seasonScorers[player].winPts += 2; // +2 очка каждому за 2 место
+                }
+            });
+
+            // 4. СОХРАНЯЕМ ИТОГ В ОБЛАКО FIREBASE
             await fetch(FIREBASE_URL + "/season_archive.json", {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ seasonScorers: seasonScorers, processedMatchIds: processedMatchIds })
             });
 
-            document.getElementById('sync-status').innerText = "Успешно добавлено матчей: " + newMatchesCount;
-            alert("Успешно занесено новых матчей: " + newMatchesCount + ". Таблица сезона обновлена!");
+            document.getElementById('sync-status').innerText = "Рейтинг обновлен! Занесено матчей: " + newMatchesCount;
+            alert("Синхронизация завершена! Всем участникам начислен +1 игровой день, лидерам добавлены баллы победителей.");
             renderSeasonTable();
 
         } catch (e) {
-            alert("Ошибка при синхронизации данных.");
+            alert("Ошибка соединения с базой данных.");
             document.getElementById('sync-status').innerText = "Ошибка соединения.";
         }
     }
 
     async function resetSeasonData() {
         if (!document.body.classList.contains('is-admin')) return;
-        if (!confirm("ВНИМАНИЕ! Вы хотите полностью стереть историю СЕЗОНА? Это действие необратимо!")) return;
+        if (!confirm("ВНИМАНИЕ! Вы хотите полностью стереть историю СЕЗОНА и обнулить все рейтинги?")) return;
 
         seasonScorers = {};
         processedMatchIds = [];
