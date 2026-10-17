@@ -46,7 +46,7 @@
             <thead>
                 <tr>
                     <th style="width: 12%;">Место</th>
-                    <th style="text-align: left; padding-left: 10px;">Игрок (Команда)</th>
+                    <th style="text-align: left; padding-left: 10px;">Игрок</th>
                     <th style="width: 25%;">Голы всего</th>
                 </tr>
             </thead>
@@ -57,16 +57,14 @@
     </div>
 
 <script>
-    // Базовая ссылка на вашу существующую базу Firebase
-    const FIREBASE_URL = https://football-7ea89-default-rtdb.europe-west1.firebasedatabase.app";
+    const FIREBASE_URL = "https://football-7ea89-default-rtdb.europe-west1.firebasedatabase.app";
 
-    let seasonScorers = {}; // Накопительная база сезона { "Игрок (Команда)": голы }
-    let processedMatchIds = []; // Список ID матчей, которые мы УЖЕ внесли в сезон, чтобы не дублировать голы
+    let seasonScorers = {}; 
+    let processedMatchIds = []; 
 
-    // Активация режима админа
     function activateAdminMode() {
         let pin = prompt("Введите пароль Администратора:");
-        if (pin === "555") { // Пароль можно изменить на любой другой
+        if (pin === "55555") { 
             document.body.classList.add('is-admin');
             document.getElementById('lock-btn').style.display = 'none';
             alert("Права администратора подтверждены!");
@@ -75,7 +73,6 @@
         }
     }
 
-    // Загрузка данных сезона из Firebase при старте (доступно всем болельщикам)
     async function loadSeasonData() {
         try {
             let res = await fetch(FIREBASE_URL + "/season_archive.json");
@@ -90,7 +87,6 @@
         }
     }
 
-     // Функция отрисовки таблицы (ИСПРАВЛЕНО: Выводим только имя игрока)
     function renderSeasonTable() {
         let sorted = Object.keys(seasonScorers)
             .map(function(name) { return { name: name, goals: seasonScorers[name] }; })
@@ -114,7 +110,6 @@
         }).join('');
     }
 
-    // УМНАЯ СИНХРОНИЗАЦИЯ (ИСПРАВЛЕНО: Ключом теперь является ТОЛЬКО имя игрока)
     async function syncLastGames() {
         if (!document.body.classList.contains('is-admin')) return;
         document.getElementById('sync-status').innerText = "Считывание текущего турнира...";
@@ -135,15 +130,13 @@
             currentGames.forEach(function(game) {
                 if (game && game.id && processedMatchIds.indexOf(game.id) === -1) {
                     
-                    // Собираем голы первой команды (ИСПРАВЛЕНО: Имя игрока в чистом виде)
                     if (game.scorers1) {
                         game.scorers1.forEach(function(player) {
-                            let key = player.trim(); // Убираем случайные пробелы по краям
+                            let key = player.trim(); 
                             seasonScorers[key] = (seasonScorers[key] || 0) + 1;
                         });
                     }
 
-                    // Собираем голы второй команды (ИСПРАВЛЕНО: Имя игрока в чистом виде)
                     if (game.scorers2) {
                         game.scorers2.forEach(function(player) {
                             let key = player.trim();
@@ -178,7 +171,6 @@
         }
     }
 
-    // Полный сброс сезона (на случай нового года/сезона)
     async function resetSeasonData() {
         if (!document.body.classList.contains('is-admin')) return;
         if (!confirm("ВНИМАНИЕ! Вы хотите полностью стереть историю СЕЗОНА? Это действие необратимо!")) return;
@@ -197,7 +189,6 @@
         document.getElementById('sync-status').innerText = "Архив сезона пуст.";
     }
 
-    // Запуск автообновления для болельщиков (раз в 5 секунд), чтобы таблица была живой
     window.onload = function() {
         loadSeasonData();
         setInterval(loadSeasonData, 5000);
