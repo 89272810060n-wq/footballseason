@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Бомбардиры Сезона 2026</title>
+    <style>
+        :root { --prm: #007bff; --suc: #28a745; --dng: #dc3545; --drk: #343a40; }
+        body { font-family: -apple-system, sans-serif; margin: 10px; background: #f0f2f5; padding-bottom: 30px; }
+        .card { background: white; padding: 20px; border-radius: 12px; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        .flex-hdr { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        h1 { font-size: 22px; margin: 0; color: var(--drk); }
+        h2 { font-size: 16px; margin: 0 0 10px 0; color: #555; }
+        .btn-set { background: #ffc107; border: none; padding: 10px 14px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 14px; }
+        .btn-main { width: 100%; padding: 14px; font-size: 16px; background: var(--suc); color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 5px; }
+        .btn-main:active { background: #1e7e34; }
+        .btn-danger { background: var(--dng); }
+        .btn-danger:active { background: #bd2130; }
+        table { width: 100%; border-collapse: collapse; text-align: center; margin-top: 10px; }
+        th, td { padding: 12px 8px; border-bottom: 1px solid #eee; font-size: 15px; }
+        th { background: var(--drk); color: white; }
+        .admin-only { display: none; }
+        body.is-admin .admin-only { display: block; }
+        .sync-info { font-size: 13px; color: #666; margin-top: 8px; text-align: center; font-style: italic; }
+    </style>
+</head>
+<body>
+
+    <div class="flex-hdr">
+        <h1>⚽ Бомбардиры Сезона</h1>
+        <button class="btn-set" id="lock-btn" onclick="activateAdminMode()">🔑 Вход Админа</button>
+    </div>
+
+    <!-- ПАНЕЛЬ УПРАВЛЕНИЯ АДМИНА -->
+    <div class="card admin-only">
+        <h2>Панель управления сезоном</h2>
+        <button class="btn-main" onclick="syncLastGames()">🔄 Занести результаты последних игр</button>
+        <div class="sync-info" id="sync-status">Готовы к импорту данных из текущего турнира</div>
+        <button class="btn-main btn-danger" style="margin-top: 15px; padding: 10px;" onclick="resetSeasonData()">🗑 Сбросить ВСЮ статистику сезона</button>
+    </div>
+
+    <!-- ТАБЛИЦА БОМБАРДИРОВ СЕЗОНА -->
+    <div class="card" style="overflow-x: auto;">
+        <h2>📊 Сводная таблица голов за весь сезон</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 12%;">Место</th>
+                    <th style="text-align: left; padding-left: 10px;">Игрок (Команда)</th>
+                    <th style="width: 25%;">Голы всего</th>
+                </tr>
+            </thead>
+            <tbody id="season-scorers-body">
+                <tr><td colspan="3" style="color:#888; padding:20px;">Загрузка данных...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+<script>
+    // Базовая ссылка на вашу существующую базу Firebase
+    const FIREBASE_URL = https://football-7ea89-default-rtdb.europe-west1.firebasedatabase.app";
+
+    let seasonScorers = {}; // Накопительная база сезона { "Игрок (Команда)": голы }
+    let processedMatchIds = []; // Список ID матчей, которые мы УЖЕ внесли в сезон, чтобы не дублировать голы
+
+    // Активация режима админа
+    function activateAdminMode() {
+        let pin = prompt("Введите пароль Администратора:");
+        if (pin === "555") { // Пароль можно изменить на любой другой
+            document.body.classList.add('is-admin');
+            document.getElementById('lock-btn').style.display = 'none';
+            alert("Права администратора подтверждены!");
+        } else {
+            alert("Неверный пароль!");
+        }
+    }
+
+    // Загрузка данных сезона из Firebase при старте (доступно всем болельщикам)
+    async function loadSeasonData() {
+        try {
+            let res = await fetch(FIREBASE_URL + "/season_archive.json");
+            let archive = await res.json();
+            if (archive) {
+                seasonScorers = archive.seasonScorers || {};
+                processedMatchIds = archive.processedMatchIds || [];
+            }
+            renderSeasonTable();
+        } catch (e) {
+            console.log("Ошибка загрузки архива сезона");
+        }
+    }
+
+     // Функция отрисовки таблицы (ИСПРАВЛЕНО: Выводим только имя игрока)
+    function renderSeasonTable() {
+        let sorted = Object.keys(seasonScorers)
+            .map(function(name) { return { name: name, goals: seasonScorers[name] }; })
+            .filter(function(p) { return p.goals > 0; })
+            .sort(function(a, b) { return b.goals - a.goals; });
+
+        let tbody = document.getElementById('season-scorers-body');
+        if (!tbody) return;
+
+        if (sorted.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="3" style="color:#888; padding:20px;">В этом сезоне голов еще не забивали</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = sorted.map(function(p, idx) {
+            return '<tr>' +
+                '<td><b>' + (idx + 1) + '</b></td>' +
+                '<td style="text-align:left; padding-left:10px; font-weight:bold;">' + p.name + '</td>' +
+                '<td style="font-weight:bold; color:var(--suc); font-size:16px;">' + p.goals + '</td>' +
+            '</tr>';
+        }).join('');
+    }
+
+    // УМНАЯ СИНХРОНИЗАЦИЯ (ИСПРАВЛЕНО: Ключом теперь является ТОЛЬКО имя игрока)
+    async function syncLastGames() {
+        if (!document.body.classList.contains('is-admin')) return;
+        document.getElementById('sync-status').innerText = "Считывание текущего турнира...";
+
+        try {
+            let res = await fetch(FIREBASE_URL + "/tournament.json");
+            let tournamentData = await res.json();
+            
+            if (!tournamentData || !tournamentData.games) {
+                alert("В текущем турнире нет сыгранных матчей для переноса!");
+                document.getElementById('sync-status').innerText = "Нет новых игр.";
+                return;
+            }
+
+            let currentGames = Object.values(tournamentData.games);
+            let newMatchesCount = 0;
+
+            currentGames.forEach(function(game) {
+                if (game && game.id && processedMatchIds.indexOf(game.id) === -1) {
+                    
+                    // Собираем голы первой команды (ИСПРАВЛЕНО: Имя игрока в чистом виде)
+                    if (game.scorers1) {
+                        game.scorers1.forEach(function(player) {
+                            let key = player.trim(); // Убираем случайные пробелы по краям
+                            seasonScorers[key] = (seasonScorers[key] || 0) + 1;
+                        });
+                    }
+
+                    // Собираем голы второй команды (ИСПРАВЛЕНО: Имя игрока в чистом виде)
+                    if (game.scorers2) {
+                        game.scorers2.forEach(function(player) {
+                            let key = player.trim();
+                            seasonScorers[key] = (seasonScorers[key] || 0) + 1;
+                        });
+                    }
+
+                    processedMatchIds.push(game.id);
+                    newMatchesCount++;
+                }
+            });
+
+            if (newMatchesCount === 0) {
+                alert("Все матчи текущего турнира уже были занесены ранее!");
+                document.getElementById('sync-status').innerText = "Новых матчей не обнаружено.";
+                return;
+            }
+
+            await fetch(FIREBASE_URL + "/season_archive.json", {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ seasonScorers: seasonScorers, processedMatchIds: processedMatchIds })
+            });
+
+            document.getElementById('sync-status').innerText = "Успешно добавлено матчей: " + newMatchesCount;
+            alert("Успешно занесено новых матчей: " + newMatchesCount + ". Таблица сезона обновлена!");
+            renderSeasonTable();
+
+        } catch (e) {
+            alert("Ошибка при синхронизации данных.");
+            document.getElementById('sync-status').innerText = "Ошибка соединения.";
+        }
+    }
+
+    // Полный сброс сезона (на случай нового года/сезона)
+    async function resetSeasonData() {
+        if (!document.body.classList.contains('is-admin')) return;
+        if (!confirm("ВНИМАНИЕ! Вы хотите полностью стереть историю СЕЗОНА? Это действие необратимо!")) return;
+
+        seasonScorers = {};
+        processedMatchIds = [];
+
+        await fetch(FIREBASE_URL + "/season_archive.json", {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ seasonScorers: {}, processedMatchIds: [] })
+        });
+
+        alert("Статистика сезона полностью обнулена!");
+        renderSeasonTable();
+        document.getElementById('sync-status').innerText = "Архив сезона пуст.";
+    }
+
+    // Запуск автообновления для болельщиков (раз в 5 секунд), чтобы таблица была живой
+    window.onload = function() {
+        loadSeasonData();
+        setInterval(loadSeasonData, 5000);
+    };
+</script>
+</body>
+</html>
