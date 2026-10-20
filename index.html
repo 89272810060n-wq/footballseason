@@ -46,6 +46,20 @@
         <button class="btn-main btn-danger" style="margin-top: 15px; padding: 10px;" onclick="resetSeasonData()">🗑 Сбросить ВСЮ статистику сезона</button>
     </div>
 
+    <!-- ФОРМА ДОБАВЛЕНИЯ ИГРОКА (только для админа) -->
+    <div class="card admin-only">
+        <h2>➕ Добавить нового игрока</h2>
+        <div style="display: flex; gap: 8px;">
+            <input type="text" id="playerName" placeholder="Введите имя игрока"
+                   style="flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px;">
+            <button onclick="addPlayer()"
+                    style="background: var(--prm); color: white; border: none; padding: 10px 16px; border-radius: 6px; font-weight: bold; cursor: pointer;">
+                Добавить
+            </button>
+        </div>
+        <div id="add-status" class="sync-info" style="margin-top: 8px;"></div>
+    </div>
+
     <!-- ТАБЛИЦА БОМБАРДИРОВ И РЕЙТИНГА СЕЗОНА -->
     <div class="card" style="overflow-x: auto;">
         <h2>📊 Сводный рейтинг (Нажмите на заголовок для сортировки)</h2>
@@ -172,6 +186,56 @@
         }).join('');
     }
 
+    // НОВАЯ ФУНКЦИЯ: добавление игрока в рейтинг сезона
+    async function addPlayer() {
+        if (!document.body.classList.contains('is-admin')) {
+            alert("Добавлять игроков может только администратор!");
+            return;
+        }
+
+        const input = document.getElementById('playerName');
+        const statusEl = document.getElementById('add-status');
+        const playerName = input.value.trim();
+
+        if (!playerName) {
+            alert('Пожалуйста, введите имя игрока');
+            return;
+        }
+
+        // Проверка на дубликат (без учёта регистра)
+        const existing = Object.keys(seasonScorers).find(
+            name => name.toLowerCase() === playerName.toLowerCase()
+        );
+        if (existing) {
+            alert('Игрок с таким именем уже есть в рейтинге: ' + existing);
+            return;
+        }
+
+        // Добавляем игрока с нулевыми показателями — сразу появится в таблице
+        seasonScorers[playerName] = { goals: 0, games: 0, winPts: 0 };
+
+        try {
+            // Сохраняем в Firebase вместе с processedMatchIds, чтобы не потерять историю
+            await fetch(FIREBASE_URL + "/season_archive.json", {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    seasonScorers: seasonScorers,
+                    processedMatchIds: processedMatchIds
+                })
+            });
+
+            input.value = '';
+            if (statusEl) statusEl.innerText = 'Игрок "' + playerName + '" добавлен в рейтинг.';
+            renderSeasonTable();
+        } catch (e) {
+            // Откатываем локальное изменение, если запись не удалась
+            delete seasonScorers[playerName];
+            alert('Ошибка сохранения в базу данных. Игрок не добавлен.');
+            if (statusEl) statusEl.innerText = 'Ошибка соединения.';
+        }
+    }
+
     async function syncLastGames() {
         if (!document.body.classList.contains('is-admin')) return;
         document.getElementById('sync-status').innerText = "Считывание текущего турнира...";
@@ -221,7 +285,7 @@
             // 2. РАСПРЕДЕЛЯЕМ ГОЛЫ И ФИКСИРУЕМ УЧАСТИЕ В МАТЧАХ
             currentGames.forEach(function(game) {
                 if (game && game.id && processedMatchIds.indexOf(game.id) === -1) {
-// Собираем голы первой команды и отмечаем игроков
+                    // Собираем голы первой команды и отмечаем игроков
                     if (game.scorers1) {
                         game.scorers1.forEach(function(player) {
                             let key = player.trim();
