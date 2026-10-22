@@ -27,7 +27,6 @@
         
         .admin-only { display: none; }
         body.is-admin .admin-only { display: block; }
-        /* ячейки с кнопкой удаления показываем только админу */
         .admin-cell { display: none; }
         body.is-admin .admin-cell { display: table-cell; }
         .sync-info { font-size: 13px; color: #666; margin-top: 8px; text-align: center; font-style: italic; }
@@ -37,6 +36,29 @@
             padding: 4px 6px; border-radius: 4px; color: var(--dng);
         }
         .btn-remove-player:hover { background: #ffecec; }
+        .btn-remove-player:disabled { color: #ccc; cursor: not-allowed; }
+        .btn-remove-player:disabled:hover { background: none; }
+        .autogoal-row { background: #fff8e1; }
+        .autogoal-row td:first-child { color: #b8860b; }
+        .autogoal-tag {
+            display: inline-block; font-size: 10px; font-weight: bold;
+            background: #ffe9a8; color: #8a5a00; padding: 1px 6px;
+            border-radius: 8px; margin-left: 6px; vertical-align: middle;
+        }
+
+        /* Форма редактирования имени */
+        .rename-row { display: flex; flex-direction: column; gap: 8px; }
+        .rename-row select, .rename-row input {
+            padding: 10px; border: 1px solid #ccc; border-radius: 6px;
+            font-size: 14px; box-sizing: border-box; width: 100%;
+        }
+        .rename-actions { display: flex; gap: 8px; }
+        .btn-secondary {
+            flex: 1; padding: 10px 16px; background: #fff; color: var(--prm);
+            border: 1px solid var(--prm); border-radius: 6px; font-weight: bold;
+            cursor: pointer; font-size: 14px;
+        }
+        .btn-secondary:hover { background: #eaf3ff; }
     </style>
 </head>
 <body>
@@ -68,6 +90,21 @@
         <div id="add-status" class="sync-info" style="margin-top: 8px;"></div>
     </div>
 
+    <!-- ФОРМА РЕДАКТИРОВАНИЯ ИМЕНИ ИГРОКА (только для админа) -->
+    <div class="card admin-only">
+        <h2>✏ Изменить имя игрока</h2>
+        <div class="rename-row">
+            <select id="rename-old">
+                <option value="">— Выберите игрока —</option>
+            </select>
+            <input type="text" id="rename-new" placeholder="Новое имя игрока">
+            <div class="rename-actions">
+                <button class="btn-secondary" onclick="renamePlayer()">Изменить имя</button>
+            </div>
+        </div>
+        <div id="rename-status" class="sync-info" style="margin-top: 8px;"></div>
+    </div>
+
     <!-- ТАБЛИЦА БОМБАРДИРОВ И РЕЙТИНГА СЕЗОНА -->
     <div class="card" style="overflow-x: auto;">
         <h2>📊 Сводный рейтинг (Нажмите на заголовок для сортировки)</h2>
@@ -91,11 +128,11 @@
 
 <script>
     const FIREBASE_URL = "https://football-7ea89-default-rtdb.europe-west1.firebasedatabase.app";
+    const AUTOGOAL = "Автогол";
 
     let seasonScorers = {}; 
     let processedMatchIds = []; 
     
-    // Параметры текущей сортировки таблицы по умолчанию
     let currentSortColumn = 'avgRating'; 
     let currentSortDirection = 'desc'; 
 
@@ -105,7 +142,8 @@
             document.body.classList.add('is-admin');
             document.getElementById('lock-btn').style.display = 'none';
             alert("Права администратора подтверждены!");
-            renderSeasonTable(); // перерисовать, чтобы появились кнопки удаления
+            renderSeasonTable();
+            refreshRenameSelect();
         } else {
             alert("Неверный пароль!");
         }
@@ -119,13 +157,47 @@
                 seasonScorers = archive.seasonScorers || {};
                 processedMatchIds = archive.processedMatchIds || [];
             }
+
+            // Автоматически создаём спец-игрока «Автогол», если его нет
+            let needSaveAutogoal = false;
+            if (!seasonScorers[AUTOGOAL]) {
+                seasonScorers[AUTOGOAL] = { goals: 0, games: 0, winPts: 0 };
+                needSaveAutogoal = true;
+            }
+
             renderSeasonTable();
+            refreshRenameSelect();
+
+            if (needSaveAutogoal) {
+                await fetch(FIREBASE_URL + "/season_archive.json", {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        seasonScorers: seasonScorers,
+                        processedMatchIds: processedMatchIds
+                    })
+                });
+            }
         } catch (e) {
-            console.log("Ошибка загрузки архива сезона");
+            console.log("Ошибка загрузки архива сезона", e);
         }
     }
 
-    // Умная функция интерактивной сортировки по столбцам
+    // Перерисовка <select> в форме редактирования имени
+    function refreshRenameSelect() {
+        let sel = document.getElementById('rename-old');
+        if (!sel) return;
+        let currentVal = sel.value;
+        let names = Object.keys(seasonScorers).sort();
+        let html = '<option value="">— Выберите игрока —</option>' +
+            names.map(function(n) {
+                let isAuto = (n === AUTOGOAL);
+                return '<option value="' + n.replace(/"/g, '&quot;') + '">' + n + (isAuto ? ' (служебный)' : '') + '</option>';
+            }).join('');
+        sel.innerHTML = html;
+        if (currentVal && seasonScorers[currentVal]) sel.value = currentVal;
+    }
+
     function sortTable(column) {
         if (currentSortColumn === column) {
             currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
@@ -133,12 +205,6 @@
             currentSortColumn = column;
             currentSortDirection = 'desc';
         }
-        
-        let headers = document.querySelectorAll('th');
-        headers.forEach(function(th) {
-            th.classList.remove('sort-asc', 'sort-desc');
-        });
-        
         renderSeasonTable();
     }
 
@@ -149,6 +215,9 @@
             let gamesCount = p.games || 0;
             let winPts = p.winPts || 0;
             
+            // У «Автогола» рейтинг победителя всегда 0 (не начисляется)
+            if (name === AUTOGOAL) winPts = 0;
+
             let avg = gamesCount > 0 ? ((winPts + goals) / gamesCount) : 0;
             avg = Math.round(avg * 100) / 100; 
 
@@ -162,6 +231,10 @@
         });
 
         playersArray.sort(function(a, b) {
+            // «Автогол» всегда в конце, независимо от сортировки
+            if (a.name === AUTOGOAL && b.name !== AUTOGOAL) return 1;
+            if (b.name === AUTOGOAL && a.name !== AUTOGOAL) return -1;
+
             let valA = a[currentSortColumn];
             let valB = b[currentSortColumn];
 
@@ -181,27 +254,39 @@
         }
 
         tbody.innerHTML = playersArray.map(function(p, idx) {
-            // Экранируем имя для безопасной подстановки в onclick
             let safeName = p.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-            return '<tr>' +
+            let isAuto = (p.name === AUTOGOAL);
+            let rowClass = isAuto ? ' class="autogoal-row"' : '';
+            let nameDisplay = isAuto
+                ? '<span style="font-style:italic; color:#8a5a00;">' + p.name + '</span><span class="autogoal-tag">служебный</span>'
+                : p.name;
+
+            let removeBtn = isAuto
+                ? '<button class="btn-remove-player" disabled title="Служебного игрока удалять нельзя">🔒</button>'
+                : '<button class="btn-remove-player" title="Удалить игрока" ' +
+                  'onclick="removePlayer(\'' + safeName + '\')">🗑</button>';
+
+            return '<tr' + rowClass + '>' +
                 '<td>' + (idx + 1) + '</td>' +
-                '<td style="text-align:left; padding-left:10px; font-weight:bold;">' + p.name + '</td>' +
+                '<td style="text-align:left; padding-left:10px; font-weight:bold;">' + nameDisplay + '</td>' +
                 '<td>' + p.goals + '</td>' +
                 '<td>' + p.games + '</td>' +
                 '<td>' + p.winPts + '</td>' +
                 '<td><span class="badge-rating">' + p.avgRating.toFixed(2) + '</span></td>' +
-                '<td class="admin-cell">' +
-                    '<button class="btn-remove-player" title="Удалить игрока" ' +
-                            'onclick="removePlayer(\'' + safeName + '\')">🗑</button>' +
-                '</td>' +
+                '<td class="admin-cell">' + removeBtn + '</td>' +
             '</tr>';
         }).join('');
     }
 
-    // Удаление отдельного игрока (только админ)
+    // Удаление игрока (кроме Автогола)
     async function removePlayer(playerName) {
         if (!document.body.classList.contains('is-admin')) {
             alert("Удалять игроков может только администратор!");
+            return;
+        }
+
+        if (playerName === AUTOGOAL) {
+            alert('Служебного игрока «' + AUTOGOAL + '» удалить нельзя.');
             return;
         }
 
@@ -228,16 +313,16 @@
                 })
             });
             renderSeasonTable();
+            refreshRenameSelect();
             let statusEl = document.getElementById('add-status');
             if (statusEl) statusEl.innerText = 'Игрок "' + playerName + '" удалён из таблицы.';
         } catch (e) {
-            // Откат при ошибке
             seasonScorers[playerName] = backup;
             alert('Ошибка сохранения в базу данных. Игрок не удалён.');
         }
     }
 
-    // НОВАЯ ФУНКЦИЯ: добавление игрока в рейтинг сезона
+    // Добавление игрока
     async function addPlayer() {
         if (!document.body.classList.contains('is-admin')) {
             alert("Добавлять игроков может только администратор!");
@@ -250,6 +335,11 @@
 
         if (!playerName) {
             alert('Пожалуйста, введите имя игрока');
+            return;
+        }
+
+        if (playerName === AUTOGOAL) {
+            alert('Имя «' + AUTOGOAL + '» зарезервировано для служебного игрока.');
             return;
         }
 
@@ -276,9 +366,90 @@
             input.value = '';
             if (statusEl) statusEl.innerText = 'Игрок "' + playerName + '" добавлен в рейтинг.';
             renderSeasonTable();
+            refreshRenameSelect();
         } catch (e) {
             delete seasonScorers[playerName];
             alert('Ошибка сохранения в базу данных. Игрок не добавлен.');
+            if (statusEl) statusEl.innerText = 'Ошибка соединения.';
+        }
+    }
+
+    // Редактирование имени игрока
+    async function renamePlayer() {
+        if (!document.body.classList.contains('is-admin')) {
+            alert("Редактировать имена может только администратор!");
+            return;
+        }
+
+        const sel = document.getElementById('rename-old');
+        const input = document.getElementById('rename-new');
+        const statusEl = document.getElementById('rename-status');
+        const oldName = sel ? sel.value : '';
+        const newName = input ? input.value.trim() : '';
+
+        if (!oldName) {
+            alert('Выберите игрока, чьё имя хотите изменить.');
+            return;
+        }
+        if (!seasonScorers[oldName]) {
+            alert('Выбранный игрок не найден в таблице (возможно, удалён).');
+            return;
+        }
+        if (!newName) {
+            alert('Введите новое имя игрока.');
+            return;
+        }
+        if (newName === oldName) {
+            alert('Новое имя совпадает с текущим — менять нечего.');
+            return;
+        }
+        if (oldName === AUTOGOAL) {
+            alert('Имя служебного игрока «' + AUTOGOAL + '» менять нельзя.');
+            return;
+        }
+        if (newName === AUTOGOAL) {
+            alert('Имя «' + AUTOGOAL + '» зарезервировано для служебного игрока.');
+            return;
+        }
+
+        // Проверка на дубликат (без учёта регистра), кроме самой себя
+        const dup = Object.keys(seasonScorers).find(function(n) {
+            return n !== oldName && n.toLowerCase() === newName.toLowerCase();
+        });
+        if (dup) {
+            alert('Игрок с именем "' + dup + '" уже есть в таблице.');
+            return;
+        }
+
+        if (!confirm('Переименовать игрока "' + oldName + '" → "' + newName + '"?\n\n' +
+                     'Вся статистика (голы, игры, баллы) сохранится. ' +
+                     'Старые записи в истории матчей турнира останутся под прежним именем, ' +
+                     'но они уже учтены — повторно ничего не начислится.')) return;
+
+        // Переименовываем: переносим объект на новый ключ, удаляем старый
+        let backup = seasonScorers[oldName];
+        seasonScorers[newName] = backup;
+        delete seasonScorers[oldName];
+
+        try {
+            await fetch(FIREBASE_URL + "/season_archive.json", {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    seasonScorers: seasonScorers,
+                    processedMatchIds: processedMatchIds
+                })
+            });
+
+            input.value = '';
+            if (statusEl) statusEl.innerText = 'Игрок "' + oldName + '" переименован в "' + newName + '".';
+            renderSeasonTable();
+            refreshRenameSelect();
+        } catch (e) {
+            // Откат
+            seasonScorers[oldName] = backup;
+            delete seasonScorers[newName];
+            alert('Ошибка сохранения в базу данных. Имя не изменено.');
             if (statusEl) statusEl.innerText = 'Ошибка соединения.';
         }
     }
@@ -301,7 +472,7 @@
             let currentTeams = tournamentData.teams || ["Команда 1", "Команда 2", "Команда 3"];
             let currentTeamPlayers = tournamentData.teamPlayers || {};
             
-            // 1. СЧИТАЕМ ИТОГОВЫЕ МЕСТА КОМАНД ТЕКУЩЕГО ТУРНИРНОГО ДНЯ
+            // 1. СЧИТАЕМ ИТОГОВЫЕ МЕСТА КОМАНД ДНЯ (п.1-2-3)
             let dayStats = {};
             currentTeams.forEach(function(t) {
                 dayStats[t] = { pts: 0, gf: 0 };
@@ -324,17 +495,15 @@
 
             let firstPlaceTeam = sortedTeamsOfDay[0];
             let secondPlaceTeam = sortedTeamsOfDay[1];
+            let thirdPlaceTeam = sortedTeamsOfDay[2];
 
             let newMatchesCount = 0;
             let activePlayersToday = new Set();
-            let skippedPlayers = new Set(); // игроки, которые есть в составе, но не добавлены в таблицу
+            let skippedPlayers = new Set();
 
-            // 2. РАСПРЕДЕЛЯЕМ ГОЛЫ И ФИКСИРУЕМ УЧАСТИЕ В МАТЧАХ
-            // ВАЖНО: статистика начисляется ТОЛЬКО тем, кто уже есть в seasonScorers.
-            // Новые игроки автоматически НЕ создаются.
+            // 2. РАСПРЕДЕЛЯЕМ ГОЛЫ (только для игроков из таблицы)
             currentGames.forEach(function(game) {
                 if (game && game.id && processedMatchIds.indexOf(game.id) === -1) {
-                    // Голы первой команды
                     if (game.scorers1) {
                         game.scorers1.forEach(function(player) {
                             let key = player.trim();
@@ -346,7 +515,6 @@
                         });
                     }
                     
-                    // Участие игроков первой команды
                     let pList1 = currentTeamPlayers[game.t1] || [];
                     pList1.forEach(function(p) {
                         let key = p.trim();
@@ -355,7 +523,6 @@
                         else skippedPlayers.add(key);
                     });
 
-                    // Голы второй команды
                     if (game.scorers2) {
                         game.scorers2.forEach(function(player) {
                             let key = player.trim();
@@ -367,7 +534,6 @@
                         });
                     }
                     
-                    // Участие игроков второй команды
                     let pList2 = currentTeamPlayers[game.t2] || [];
                     pList2.forEach(function(p) {
                         let key = p.trim();
@@ -387,13 +553,16 @@
                 return;
             }
 
-            // 3. НАЧИСЛЯЕМ +1 К ИГРАМ И БАЛЛЫ ЗА 1 И 2 МЕСТА
-            // Только для игроков, которые уже есть в таблице
+            // 3. НАЧИСЛЯЕМ ИГРЫ И БАЛЛЫ ЗА МЕСТА.
+            // Новая логика: 1-е → +3, 2-е → +2, 3-е → +1.
+            // «Автогол» — служебный, ему ничего не начисляем.
             let playersOfTeam1 = (currentTeamPlayers[firstPlaceTeam] || []).map(function(p){ return p.trim(); });
             let playersOfTeam2 = (currentTeamPlayers[secondPlaceTeam] || []).map(function(p){ return p.trim(); });
+            let playersOfTeam3 = (currentTeamPlayers[thirdPlaceTeam] || []).map(function(p){ return p.trim(); });
 
             activePlayersToday.forEach(function(player) {
-                if (!seasonScorers[player]) return; // страховка
+                if (!seasonScorers[player]) return;
+                if (player === AUTOGOAL) return; // Автоголу игры/баллы не идут
 
                 seasonScorers[player].games += 1;
 
@@ -401,10 +570,15 @@
                     seasonScorers[player].winPts += 3;
                 } else if (playersOfTeam2.indexOf(player) !== -1) {
                     seasonScorers[player].winPts += 2;
+                } else if (playersOfTeam3.indexOf(player) !== -1) {
+                    seasonScorers[player].winPts += 1;
                 }
             });
 
-            // 4. СОХРАНЯЕМ ИТОГ В ОБЛАКО FIREBASE
+            // У «Автогола» принудительно держим winPts = 0
+            if (seasonScorers[AUTOGOAL]) seasonScorers[AUTOGOAL].winPts = 0;
+
+            // 4. СОХРАНЯЕМ В FIREBASE
             await fetch(FIREBASE_URL + "/season_archive.json", {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -417,14 +591,16 @@
             }
             document.getElementById('sync-status').innerText = statusMsg;
             
-            let alertMsg = "Синхронизация завершена! Всем участникам из таблицы начислен +1 игровой день, лидерам добавлены баллы победителей.";
+            let alertMsg = "Синхронизация завершена! Всем участникам из таблицы начислен +1 игровой день. " +
+                           "Места команд дня: 1-е → +3, 2-е → +2, 3-е → +1.";
             if (skippedPlayers.size > 0) {
                 alertMsg += "\n\nВНИМАНИЕ: следующие игроки есть в составе, но отсутствуют в таблице рейтинга, поэтому статистика им НЕ начислена:\n— " +
                             Array.from(skippedPlayers).join("\n— ") +
-                            "\n\nЕсли их нужно учитывать, добавьте их через форму «Добавить нового игрока» и синхронизируйте заново (удалив их матчи из истории турнира нельзя — но проще добавлять заранее).";
+                            "\n\nЕсли их нужно учитывать, добавьте их через форму «Добавить нового игрока» заранее.";
             }
             alert(alertMsg);
             renderSeasonTable();
+            refreshRenameSelect();
 
         } catch (e) {
             alert("Ошибка соединения с базой данных.");
@@ -434,19 +610,23 @@
 
     async function resetSeasonData() {
         if (!document.body.classList.contains('is-admin')) return;
-        if (!confirm("ВНИМАНИЕ! Вы хотите полностью стереть историю СЕЗОНА и обнулить все рейтинги?")) return;
+        if (!confirm("ВНИМАНИЕ! Вы хотите полностью стереть историю СЕЗОНА и обнулить все рейтинги?\n\n" +
+                     "Служебный игрок «" + AUTOGOAL + "» будет создан заново с нулевыми показателями.")) return;
 
+        // Сбрасываем, но сохраняем «Автогол» как служебного
         seasonScorers = {};
+        seasonScorers[AUTOGOAL] = { goals: 0, games: 0, winPts: 0 };
         processedMatchIds = [];
 
         await fetch(FIREBASE_URL + "/season_archive.json", {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ seasonScorers: {}, processedMatchIds: [] })
+            body: JSON.stringify({ seasonScorers: seasonScorers, processedMatchIds: processedMatchIds })
         });
 
-        alert("Статистика сезона полностью обнулена!");
+        alert("Статистика сезона полностью обнулена! Служебный игрок «" + AUTOGOAL + "» сброшен.");
         renderSeasonTable();
+        refreshRenameSelect();
         document.getElementById('sync-status').innerText = "Архив сезона пуст.";
     }
 
