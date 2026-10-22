@@ -218,6 +218,9 @@
             // У «Автогола» рейтинг победителя всегда 0 (не начисляется)
             if (name === AUTOGOAL) winPts = 0;
 
+            // Средний рейтинг:
+            // - обычные игроки: (winPts + goals) / games
+            // - Автогол: goals / games (winPts = 0, поэтому фактически та же формула)
             let avg = gamesCount > 0 ? ((winPts + goals) / gamesCount) : 0;
             avg = Math.round(avg * 100) / 100; 
 
@@ -230,11 +233,8 @@
             };
         });
 
+        // Сортируем всех, включая Автогол, по обычным правилам
         playersArray.sort(function(a, b) {
-            // «Автогол» всегда в конце, независимо от сортировки
-            if (a.name === AUTOGOAL && b.name !== AUTOGOAL) return 1;
-            if (b.name === AUTOGOAL && a.name !== AUTOGOAL) return -1;
-
             let valA = a[currentSortColumn];
             let valB = b[currentSortColumn];
 
@@ -412,7 +412,6 @@
             return;
         }
 
-        // Проверка на дубликат (без учёта регистра), кроме самой себя
         const dup = Object.keys(seasonScorers).find(function(n) {
             return n !== oldName && n.toLowerCase() === newName.toLowerCase();
         });
@@ -426,7 +425,6 @@
                      'Старые записи в истории матчей турнира останутся под прежним именем, ' +
                      'но они уже учтены — повторно ничего не начислится.')) return;
 
-        // Переименовываем: переносим объект на новый ключ, удаляем старый
         let backup = seasonScorers[oldName];
         seasonScorers[newName] = backup;
         delete seasonScorers[oldName];
@@ -446,7 +444,6 @@
             renderSeasonTable();
             refreshRenameSelect();
         } catch (e) {
-            // Откат
             seasonScorers[oldName] = backup;
             delete seasonScorers[newName];
             alert('Ошибка сохранения в базу данных. Имя не изменено.');
@@ -472,7 +469,7 @@
             let currentTeams = tournamentData.teams || ["Команда 1", "Команда 2", "Команда 3"];
             let currentTeamPlayers = tournamentData.teamPlayers || {};
             
-            // 1. СЧИТАЕМ ИТОГОВЫЕ МЕСТА КОМАНД ДНЯ (п.1-2-3)
+            // 1. СЧИТАЕМ ИТОГОВЫЕ МЕСТА КОМАНД ДНЯ (1, 2, 3)
             let dayStats = {};
             currentTeams.forEach(function(t) {
                 dayStats[t] = { pts: 0, gf: 0 };
@@ -501,7 +498,7 @@
             let activePlayersToday = new Set();
             let skippedPlayers = new Set();
 
-            // 2. РАСПРЕДЕЛЯЕМ ГОЛЫ (только для игроков из таблицы)
+            // 2. РАСПРЕДЕЛЯЕМ ГОЛЫ И ФИКСИРУЕМ УЧАСТИЕ
             currentGames.forEach(function(game) {
                 if (game && game.id && processedMatchIds.indexOf(game.id) === -1) {
                     if (game.scorers1) {
@@ -553,18 +550,21 @@
                 return;
             }
 
-            // 3. НАЧИСЛЯЕМ ИГРЫ И БАЛЛЫ ЗА МЕСТА.
-            // Новая логика: 1-е → +3, 2-е → +2, 3-е → +1.
-            // «Автогол» — служебный, ему ничего не начисляем.
+            // 3. НАЧИСЛЯЕМ ИГРЫ И БАЛЛЫ ЗА МЕСТА (1→+3, 2→+2, 3→+1).
+            // «Автогол» — служебный: games начисляется (если он есть в составе),
+            // но winPts всегда 0.
             let playersOfTeam1 = (currentTeamPlayers[firstPlaceTeam] || []).map(function(p){ return p.trim(); });
             let playersOfTeam2 = (currentTeamPlayers[secondPlaceTeam] || []).map(function(p){ return p.trim(); });
             let playersOfTeam3 = (currentTeamPlayers[thirdPlaceTeam] || []).map(function(p){ return p.trim(); });
 
             activePlayersToday.forEach(function(player) {
                 if (!seasonScorers[player]) return;
-                if (player === AUTOGOAL) return; // Автоголу игры/баллы не идут
 
+                // games начисляется всем, включая Автогола
                 seasonScorers[player].games += 1;
+
+                // Баллы за места — только реальным игрокам
+                if (player === AUTOGOAL) return;
 
                 if (playersOfTeam1.indexOf(player) !== -1) {
                     seasonScorers[player].winPts += 3;
@@ -613,7 +613,6 @@
         if (!confirm("ВНИМАНИЕ! Вы хотите полностью стереть историю СЕЗОНА и обнулить все рейтинги?\n\n" +
                      "Служебный игрок «" + AUTOGOAL + "» будет создан заново с нулевыми показателями.")) return;
 
-        // Сбрасываем, но сохраняем «Автогол» как служебного
         seasonScorers = {};
         seasonScorers[AUTOGOAL] = { goals: 0, games: 0, winPts: 0 };
         processedMatchIds = [];
