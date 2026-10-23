@@ -38,13 +38,24 @@
         .btn-remove-player:hover { background: #ffecec; }
         .btn-remove-player:disabled { color: #ccc; cursor: not-allowed; }
         .btn-remove-player:disabled:hover { background: none; }
-        .autogoal-row { background: #fff8e1; }
+        .autogoal-row { background: #fff8e1 !important; }
         .autogoal-row td:first-child { color: #b8860b; }
         .autogoal-tag {
             display: inline-block; font-size: 10px; font-weight: bold;
             background: #ffe9a8; color: #8a5a00; padding: 1px 6px;
             border-radius: 8px; margin-left: 6px; vertical-align: middle;
         }
+
+        /* Подсветка одинаковых голов */
+        .goals-group-1 { background: #ffe0e0; }
+        .goals-group-2 { background: #e0ffe2; }
+        .goals-group-3 { background: #e0ecff; }
+        .goals-group-4 { background: #fff4d6; }
+        .goals-group-5 { background: #f0e0ff; }
+        .goals-group-6 { background: #ffecd9; }
+        .goals-group-7 { background: #d9f6f6; }
+        .goals-group-8 { background: #f7e2ef; }
+        .goals-top td { font-weight: 900; }
 
         /* Форма редактирования имени */
         .rename-row { display: flex; flex-direction: column; gap: 8px; }
@@ -59,6 +70,14 @@
             cursor: pointer; font-size: 14px;
         }
         .btn-secondary:hover { background: #eaf3ff; }
+
+        /* Опасная зона */
+        .danger-zone {
+            border: 2px dashed var(--dng);
+            background: #fff5f5;
+        }
+        .danger-zone h2 { color: var(--dng); }
+        .danger-zone p { font-size: 13px; color: #a33; margin: 0 0 10px 0; }
     </style>
 </head>
 <body>
@@ -73,7 +92,6 @@
         <h2>Панель управления сезоном</h2>
         <button class="btn-main" onclick="syncLastGames()">🔄 Занести результаты и рассчитать рейтинг дня</button>
         <div class="sync-info" id="sync-status">Готовы к импорту данных и начислению очков командам</div>
-        <button class="btn-main btn-danger" style="margin-top: 15px; padding: 10px;" onclick="resetSeasonData()">🗑 Сбросить ВСЮ статистику сезона</button>
     </div>
 
     <!-- ФОРМА ДОБАВЛЕНИЯ ИГРОКА (только для админа) -->
@@ -126,9 +144,20 @@
         </table>
     </div>
 
+    <!-- ОПАСНАЯ ЗОНА (внизу страницы, только для админа) -->
+    <div class="card admin-only danger-zone">
+        <h2>⚠ Опасная зона</h2>
+        <p>Полное удаление статистики сезона необратимо. Потребуется ввести пароль.</p>
+        <button class="btn-main btn-danger" style="padding: 10px;" onclick="resetSeasonData()">
+            🗑 Сбросить ВСЮ статистику сезона
+        </button>
+        <div id="reset-status" class="sync-info" style="margin-top: 8px;"></div>
+    </div>
+
 <script>
     const FIREBASE_URL = "https://football-7ea89-default-rtdb.europe-west1.firebasedatabase.app";
     const AUTOGOAL = "Автогол";
+    const RESET_PASSWORD = "88888";
 
     let seasonScorers = {}; 
     let processedMatchIds = []; 
@@ -158,7 +187,6 @@
                 processedMatchIds = archive.processedMatchIds || [];
             }
 
-            // Автоматически создаём спец-игрока «Автогол», если его нет
             let needSaveAutogoal = false;
             if (!seasonScorers[AUTOGOAL]) {
                 seasonScorers[AUTOGOAL] = { goals: 0, games: 0, winPts: 0 };
@@ -183,7 +211,6 @@
         }
     }
 
-    // Перерисовка <select> в форме редактирования имени
     function refreshRenameSelect() {
         let sel = document.getElementById('rename-old');
         if (!sel) return;
@@ -215,12 +242,8 @@
             let gamesCount = p.games || 0;
             let winPts = p.winPts || 0;
             
-            // У «Автогола» рейтинг победителя всегда 0 (не начисляется)
             if (name === AUTOGOAL) winPts = 0;
 
-            // Средний рейтинг:
-            // - обычные игроки: (winPts + goals) / games
-            // - Автогол: goals / games (winPts = 0, поэтому фактически та же формула)
             let avg = gamesCount > 0 ? ((winPts + goals) / gamesCount) : 0;
             avg = Math.round(avg * 100) / 100; 
 
@@ -233,7 +256,6 @@
             };
         });
 
-        // Сортируем всех, включая Автогол, по обычным правилам
         playersArray.sort(function(a, b) {
             let valA = a[currentSortColumn];
             let valB = b[currentSortColumn];
@@ -253,10 +275,49 @@
             return;
         }
 
+        // --- Группировка по числу голов для подсветки ---
+        // Считаем только реальных игроков (без Автогола) для назначения цветов.
+        // Автогол всегда подсвечивается своим autogoal-цветом.
+        var goalsCounts = {};
+        playersArray.forEach(function(p) {
+            if (p.name === AUTOGOAL) return;
+            var g = p.goals || 0;
+            goalsCounts[g] = (goalsCounts[g] || 0) + 1;
+        });
+        // Уникальные значения голов, где есть хотя бы 2 игрока с таким числом
+        var groupedGoalsValues = Object.keys(goalsCounts)
+            .map(Number)
+            .filter(function(g) { return goalsCounts[g] >= 2; })
+            .sort(function(a, b) { return b - a; });
+
+        var goalColorMap = {};
+        groupedGoalsValues.forEach(function(g, idx) {
+            goalColorMap[g] = 'goals-group-' + ((idx % 8) + 1);
+        });
+
+        // Определяем максимум голов среди реальных игроков для «жирного» шрифта
+        var maxGoalsReal = 0;
+        playersArray.forEach(function(p) {
+            if (p.name !== AUTOGOAL) {
+                if (p.goals > maxGoalsReal) maxGoalsReal = p.goals;
+            }
+        });
+
         tbody.innerHTML = playersArray.map(function(p, idx) {
             let safeName = p.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
             let isAuto = (p.name === AUTOGOAL);
-            let rowClass = isAuto ? ' class="autogoal-row"' : '';
+
+            let rowClasses = [];
+            if (isAuto) {
+                rowClasses.push('autogoal-row');
+            } else {
+                // Подсветка, если у этого значения голов есть «напарник»
+                let gcls = goalColorMap[p.goals];
+                if (gcls) rowClasses.push(gcls);
+                // «Топ» — если это максимум голов (только среди реальных)
+                if (p.goals === maxGoalsReal && p.goals > 0) rowClasses.push('goals-top');
+            }
+
             let nameDisplay = isAuto
                 ? '<span style="font-style:italic; color:#8a5a00;">' + p.name + '</span><span class="autogoal-tag">служебный</span>'
                 : p.name;
@@ -266,7 +327,9 @@
                 : '<button class="btn-remove-player" title="Удалить игрока" ' +
                   'onclick="removePlayer(\'' + safeName + '\')">🗑</button>';
 
-            return '<tr' + rowClass + '>' +
+            let clsAttr = rowClasses.length ? ' class="' + rowClasses.join(' ') + '"' : '';
+
+            return '<tr' + clsAttr + '>' +
                 '<td>' + (idx + 1) + '</td>' +
                 '<td style="text-align:left; padding-left:10px; font-weight:bold;">' + nameDisplay + '</td>' +
                 '<td>' + p.goals + '</td>' +
@@ -278,7 +341,6 @@
         }).join('');
     }
 
-    // Удаление игрока (кроме Автогола)
     async function removePlayer(playerName) {
         if (!document.body.classList.contains('is-admin')) {
             alert("Удалять игроков может только администратор!");
@@ -322,7 +384,6 @@
         }
     }
 
-    // Добавление игрока
     async function addPlayer() {
         if (!document.body.classList.contains('is-admin')) {
             alert("Добавлять игроков может только администратор!");
@@ -374,7 +435,6 @@
         }
     }
 
-    // Редактирование имени игрока
     async function renamePlayer() {
         if (!document.body.classList.contains('is-admin')) {
             alert("Редактировать имена может только администратор!");
@@ -497,6 +557,8 @@
             let newMatchesCount = 0;
             let activePlayersToday = new Set();
             let skippedPlayers = new Set();
+            // Игры Автогола: считаем матчи, в которых есть его голы.
+            let autogoalMatchIds = new Set();
 
             // 2. РАСПРЕДЕЛЯЕМ ГОЛЫ И ФИКСИРУЕМ УЧАСТИЕ
             currentGames.forEach(function(game) {
@@ -506,6 +568,7 @@
                             let key = player.trim();
                             if (seasonScorers[key]) {
                                 seasonScorers[key].goals += 1;
+                                if (key === AUTOGOAL) autogoalMatchIds.add(game.id);
                             } else if (key) {
                                 skippedPlayers.add(key);
                             }
@@ -525,6 +588,7 @@
                             let key = player.trim();
                             if (seasonScorers[key]) {
                                 seasonScorers[key].goals += 1;
+                                if (key === AUTOGOAL) autogoalMatchIds.add(game.id);
                             } else if (key) {
                                 skippedPlayers.add(key);
                             }
@@ -550,21 +614,16 @@
                 return;
             }
 
-            // 3. НАЧИСЛЯЕМ ИГРЫ И БАЛЛЫ ЗА МЕСТА (1→+3, 2→+2, 3→+1).
-            // «Автогол» — служебный: games начисляется (если он есть в составе),
-            // но winPts всегда 0.
+            // 3. НАЧИСЛЯЕМ ИГРЫ И БАЛЛЫ ЗА МЕСТА
             let playersOfTeam1 = (currentTeamPlayers[firstPlaceTeam] || []).map(function(p){ return p.trim(); });
             let playersOfTeam2 = (currentTeamPlayers[secondPlaceTeam] || []).map(function(p){ return p.trim(); });
             let playersOfTeam3 = (currentTeamPlayers[thirdPlaceTeam] || []).map(function(p){ return p.trim(); });
 
             activePlayersToday.forEach(function(player) {
                 if (!seasonScorers[player]) return;
+                if (player === AUTOGOAL) return; // Автоголу игры через состав не идут
 
-                // games начисляется всем, включая Автогола
                 seasonScorers[player].games += 1;
-
-                // Баллы за места — только реальным игрокам
-                if (player === AUTOGOAL) return;
 
                 if (playersOfTeam1.indexOf(player) !== -1) {
                     seasonScorers[player].winPts += 3;
@@ -575,7 +634,12 @@
                 }
             });
 
-            // У «Автогола» принудительно держим winPts = 0
+            // Игры Автогола = число матчей, где у него есть голы.
+            // processedMatchIds уже включает эти матчи, так что повторно не прибавим.
+            if (seasonScorers[AUTOGOAL] && autogoalMatchIds.size > 0) {
+                seasonScorers[AUTOGOAL].games += autogoalMatchIds.size;
+            }
+            // winPts Автогола всегда 0
             if (seasonScorers[AUTOGOAL]) seasonScorers[AUTOGOAL].winPts = 0;
 
             // 4. СОХРАНЯЕМ В FIREBASE
@@ -609,24 +673,47 @@
     }
 
     async function resetSeasonData() {
-        if (!document.body.classList.contains('is-admin')) return;
+        if (!document.body.classList.contains('is-admin')) {
+            alert("Сброс статистики доступен только администратору.");
+            return;
+        }
+
+        // Дополнительный пароль для опасной зоны
+        let pin = prompt("Для полного удаления статистики сезона введите пароль:");
+        if (pin === null) return; // отменили ввод
+        if (pin !== RESET_PASSWORD) {
+            alert("Неверный пароль! Сброс отменён.");
+            let statusEl = document.getElementById('reset-status');
+            if (statusEl) statusEl.innerText = 'Сброс отменён: неверный пароль.';
+            return;
+        }
+
         if (!confirm("ВНИМАНИЕ! Вы хотите полностью стереть историю СЕЗОНА и обнулить все рейтинги?\n\n" +
-                     "Служебный игрок «" + AUTOGOAL + "» будет создан заново с нулевыми показателями.")) return;
+                     "Служебный игрок «" + AUTOGOAL + "» будет создан заново с нулевыми показателями.\n\n" +
+                     "Это действие НЕОБРАТИМО. Продолжить?")) return;
 
         seasonScorers = {};
         seasonScorers[AUTOGOAL] = { goals: 0, games: 0, winPts: 0 };
         processedMatchIds = [];
 
-        await fetch(FIREBASE_URL + "/season_archive.json", {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ seasonScorers: seasonScorers, processedMatchIds: processedMatchIds })
-        });
+        try {
+            await fetch(FIREBASE_URL + "/season_archive.json", {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ seasonScorers: seasonScorers, processedMatchIds: processedMatchIds })
+            });
 
-        alert("Статистика сезона полностью обнулена! Служебный игрок «" + AUTOGOAL + "» сброшен.");
-        renderSeasonTable();
-        refreshRenameSelect();
-        document.getElementById('sync-status').innerText = "Архив сезона пуст.";
+            alert("Статистика сезона полностью обнулена! Служебный игрок «" + AUTOGOAL + "» сброшен.");
+            renderSeasonTable();
+            refreshRenameSelect();
+            document.getElementById('sync-status').innerText = "Архив сезона пуст.";
+            let statusEl = document.getElementById('reset-status');
+            if (statusEl) statusEl.innerText = 'Статистика сезона сброшена.';
+        } catch (e) {
+            alert("Ошибка соединения с базой данных. Сброс не выполнен.");
+            let statusEl = document.getElementById('reset-status');
+            if (statusEl) statusEl.innerText = 'Ошибка соединения.';
+        }
     }
 
     window.onload = function() {
