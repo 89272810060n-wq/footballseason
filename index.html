@@ -17,7 +17,6 @@
         .btn-danger { background: var(--dng); }
         .btn-danger:active { background: #bd2130; }
         
-        /* Стили интерактивной таблицы */
         table { width: 100%; border-collapse: collapse; text-align: center; margin-top: 10px; }
         th, td { padding: 10px 5px; border-bottom: 1px solid #eee; font-size: 13px; }
         th { background: var(--drk); color: white; cursor: pointer; user-select: none; position: relative; }
@@ -46,7 +45,6 @@
             border-radius: 8px; margin-left: 6px; vertical-align: middle;
         }
 
-        /* Подсветка одинаковых голов */
         .goals-group-1 { background: #ffe0e0; }
         .goals-group-2 { background: #e0ffe2; }
         .goals-group-3 { background: #e0ecff; }
@@ -57,7 +55,6 @@
         .goals-group-8 { background: #f7e2ef; }
         .goals-top td { font-weight: 900; }
 
-        /* Форма редактирования имени */
         .rename-row { display: flex; flex-direction: column; gap: 8px; }
         .rename-row select, .rename-row input {
             padding: 10px; border: 1px solid #ccc; border-radius: 6px;
@@ -71,7 +68,6 @@
         }
         .btn-secondary:hover { background: #eaf3ff; }
 
-        /* Опасная зона */
         .danger-zone {
             border: 2px dashed var(--dng);
             background: #fff5f5;
@@ -87,14 +83,12 @@
         <button class="btn-set" id="lock-btn" onclick="activateAdminMode()">🔑 Вход Админа</button>
     </div>
 
-    <!-- ПАНЕЛЬ УПРАВЛЕНИЯ АДМИНА -->
     <div class="card admin-only">
         <h2>Панель управления сезоном</h2>
         <button class="btn-main" onclick="syncLastGames()">🔄 Занести результаты и рассчитать рейтинг дня</button>
         <div class="sync-info" id="sync-status">Готовы к импорту данных и начислению очков командам</div>
     </div>
 
-    <!-- ФОРМА ДОБАВЛЕНИЯ ИГРОКА (только для админа) -->
     <div class="card admin-only">
         <h2>➕ Добавить нового игрока</h2>
         <div style="display: flex; gap: 8px;">
@@ -108,7 +102,6 @@
         <div id="add-status" class="sync-info" style="margin-top: 8px;"></div>
     </div>
 
-    <!-- ФОРМА РЕДАКТИРОВАНИЯ ИМЕНИ ИГРОКА (только для админа) -->
     <div class="card admin-only">
         <h2>✏ Изменить имя игрока</h2>
         <div class="rename-row">
@@ -123,7 +116,6 @@
         <div id="rename-status" class="sync-info" style="margin-top: 8px;"></div>
     </div>
 
-    <!-- ТАБЛИЦА БОМБАРДИРОВ И РЕЙТИНГА СЕЗОНА -->
     <div class="card" style="overflow-x: auto;">
         <h2>📊 Сводный рейтинг (Нажмите на заголовок для сортировки)</h2>
         <table>
@@ -144,7 +136,6 @@
         </table>
     </div>
 
-    <!-- ОПАСНАЯ ЗОНА (внизу страницы, только для админа) -->
     <div class="card admin-only danger-zone">
         <h2>⚠ Опасная зона</h2>
         <p>Полное удаление статистики сезона необратимо. Потребуется ввести пароль.</p>
@@ -167,7 +158,6 @@
     // 2) Игры — меньше выше
     // 3) Сред.Р — больше выше
     // 4) Имя — по алфавиту
-    // currentSortColumn === 'default' — это не колонка таблицы, а «режим по умолчанию».
     let currentSortColumn = 'default'; 
     let currentSortDirection = 'desc'; 
 
@@ -250,6 +240,7 @@
             
             if (name === AUTOGOAL) winPts = 0;
 
+            // Средний рейтинг = (голы + рейтинг победителя (очки команды)) / игры
             let avg = gamesCount > 0 ? ((winPts + goals) / gamesCount) : 0;
             avg = Math.round(avg * 100) / 100; 
 
@@ -262,15 +253,12 @@
             };
         });
 
-        // Сортировка:
-        // - 'default': голы ↓, игры ↑, сред.Р ↓, имя A→Z
-        // - иначе: по выбранной колонке и направлению
         if (currentSortColumn === 'default') {
             playersArray.sort(function(a, b) {
-                if (b.goals !== a.goals) return b.goals - a.goals;        // больше голов — выше
-                if (a.games !== b.games) return a.games - b.games;        // меньше игр — выше
-                if (b.avgRating !== a.avgRating) return b.avgRating - a.avgRating; // больше сред.Р — выше
-                return a.name.localeCompare(b.name);                       // по алфавиту
+                if (b.goals !== a.goals) return b.goals - a.goals;
+                if (a.games !== b.games) return a.games - b.games;
+                if (b.avgRating !== a.avgRating) return b.avgRating - a.avgRating;
+                return a.name.localeCompare(b.name);
             });
         } else {
             playersArray.sort(function(a, b) {
@@ -293,7 +281,6 @@
             return;
         }
 
-        // Группировка по голам для подсветки (только реальные игроки, без Автогола)
         var goalsCounts = {};
         playersArray.forEach(function(p) {
             if (p.name === AUTOGOAL) return;
@@ -523,6 +510,15 @@
         }
     }
 
+    // ---------------- СИНХРОНИЗАЦИЯ: НОВАЯ ЛОГИКА ----------------
+    // winPts = сумма ОЧКОВ КОМАНДЫ за все сыгранные дни.
+    // При синхронизации:
+    //   1) Берём только новые матчи (id ∉ processedMatchIds).
+    //   2) Считаем очки каждой команды по этим матчам: победа 3, ничья 1, поражение 0.
+    //      Это те же очки, что видны в таблице результатов за этот игровой день.
+    //   3) Каждому игроку, участвовавшему в матчах, прибавляем +1 игру
+    //      и +dayPts[его команды] к winPts.
+    //   4) Голы распределяем как обычно; Автоголу games = число матчей с его голами.
     async function syncLastGames() {
         if (!document.body.classList.contains('is-admin')) return;
         document.getElementById('sync-status').innerText = "Считывание текущего турнира...";
@@ -540,79 +536,16 @@
             let currentGames = Object.values(tournamentData.games);
             let currentTeams = tournamentData.teams || ["Команда 1", "Команда 2", "Команда 3"];
             let currentTeamPlayers = tournamentData.teamPlayers || {};
-            
-            let dayStats = {};
-            currentTeams.forEach(function(t) {
-                dayStats[t] = { pts: 0, gf: 0 };
-            });
-
-            currentGames.forEach(function(g) {
-                if (g && dayStats[g.t1] && dayStats[g.t2]) {
-                    dayStats[g.t1].gf += g.s1;
-                    dayStats[g.t2].gf += g.s2;
-                    if (g.s1 > g.s2) { dayStats[g.t1].pts += 3; } 
-                    else if (g.s1 < g.s2) { dayStats[g.t2].pts += 3; } 
-                    else { dayStats[g.t1].pts += 1; dayStats[g.t2].pts += 1; }
-                }
-            });
-
-            let sortedTeamsOfDay = [...currentTeams].sort(function(a, b) {
-                if (dayStats[b].pts !== dayStats[a].pts) return dayStats[b].pts - dayStats[a].pts;
-                return dayStats[b].gf - dayStats[a].gf;
-            });
-
-            let firstPlaceTeam = sortedTeamsOfDay[0];
-            let secondPlaceTeam = sortedTeamsOfDay[1];
-            let thirdPlaceTeam = sortedTeamsOfDay[2];
 
             let newMatchesCount = 0;
-            let activePlayersToday = new Set();
+            let newMatches = [];
             let skippedPlayers = new Set();
             let autogoalMatchIds = new Set();
 
+            // 1. Отбираем новые матчи
             currentGames.forEach(function(game) {
                 if (game && game.id && processedMatchIds.indexOf(game.id) === -1) {
-                    if (game.scorers1) {
-                        game.scorers1.forEach(function(player) {
-                            let key = player.trim();
-                            if (seasonScorers[key]) {
-                                seasonScorers[key].goals += 1;
-                                if (key === AUTOGOAL) autogoalMatchIds.add(game.id);
-                            } else if (key) {
-                                skippedPlayers.add(key);
-                            }
-                        });
-                    }
-                    
-                    let pList1 = currentTeamPlayers[game.t1] || [];
-                    pList1.forEach(function(p) {
-                        let key = p.trim();
-                        if (!key) return;
-                        if (seasonScorers[key]) activePlayersToday.add(key);
-                        else skippedPlayers.add(key);
-                    });
-
-                    if (game.scorers2) {
-                        game.scorers2.forEach(function(player) {
-                            let key = player.trim();
-                            if (seasonScorers[key]) {
-                                seasonScorers[key].goals += 1;
-                                if (key === AUTOGOAL) autogoalMatchIds.add(game.id);
-                            } else if (key) {
-                                skippedPlayers.add(key);
-                            }
-                        });
-                    }
-                    
-                    let pList2 = currentTeamPlayers[game.t2] || [];
-                    pList2.forEach(function(p) {
-                        let key = p.trim();
-                        if (!key) return;
-                        if (seasonScorers[key]) activePlayersToday.add(key);
-                        else skippedPlayers.add(key);
-                    });
-
-                    processedMatchIds.push(game.id);
+                    newMatches.push(game);
                     newMatchesCount++;
                 }
             });
@@ -623,44 +556,120 @@
                 return;
             }
 
-            let playersOfTeam1 = (currentTeamPlayers[firstPlaceTeam] || []).map(function(p){ return p.trim(); });
-            let playersOfTeam2 = (currentTeamPlayers[secondPlaceTeam] || []).map(function(p){ return p.trim(); });
-            let playersOfTeam3 = (currentTeamPlayers[thirdPlaceTeam] || []).map(function(p){ return p.trim(); });
+            // 2. Считаем очки каждой команды ТОЛЬКО по новым матчам (за игровой день)
+            let dayPts = {};
+            currentTeams.forEach(function(t) { dayPts[t] = 0; });
 
+            newMatches.forEach(function(g) {
+                if (dayPts[g.t1] === undefined) dayPts[g.t1] = 0;
+                if (dayPts[g.t2] === undefined) dayPts[g.t2] = 0;
+                if (g.s1 > g.s2) { dayPts[g.t1] += 3; }
+                else if (g.s1 < g.s2) { dayPts[g.t2] += 3; }
+                else { dayPts[g.t1] += 1; dayPts[g.t2] += 1; }
+            });
+
+            // 3. Собираем игроков, участвовавших в новых матчах, и распределяем голы
+            let activePlayersToday = new Set();
+            let playerTeamToday = {}; // playerName -> teamName
+
+            newMatches.forEach(function(game) {
+                // Голы первой команды
+                if (game.scorers1) {
+                    game.scorers1.forEach(function(player) {
+                        let key = player.trim();
+                        if (seasonScorers[key]) {
+                            seasonScorers[key].goals += 1;
+                            if (key === AUTOGOAL) autogoalMatchIds.add(game.id);
+                        } else if (key) {
+                            skippedPlayers.add(key);
+                        }
+                    });
+                }
+                // Игроки состава первой команды
+                let pList1 = currentTeamPlayers[game.t1] || [];
+                pList1.forEach(function(p) {
+                    let key = p.trim();
+                    if (!key) return;
+                    if (seasonScorers[key]) {
+                        activePlayersToday.add(key);
+                        playerTeamToday[key] = game.t1;
+                    } else {
+                        skippedPlayers.add(key);
+                    }
+                });
+
+                // Голы второй команды
+                if (game.scorers2) {
+                    game.scorers2.forEach(function(player) {
+                        let key = player.trim();
+                        if (seasonScorers[key]) {
+                            seasonScorers[key].goals += 1;
+                            if (key === AUTOGOAL) autogoalMatchIds.add(game.id);
+                        } else if (key) {
+                            skippedPlayers.add(key);
+                        }
+                    });
+                }
+                // Игроки состава второй команды
+                let pList2 = currentTeamPlayers[game.t2] || [];
+                pList2.forEach(function(p) {
+                    let key = p.trim();
+                    if (!key) return;
+                    if (seasonScorers[key]) {
+                        activePlayersToday.add(key);
+                        playerTeamToday[key] = game.t2;
+                    } else {
+                        skippedPlayers.add(key);
+                    }
+                });
+
+                processedMatchIds.push(game.id);
+            });
+
+            // 4. Начисляем игры и winPts = дневные очки команды игрока
             activePlayersToday.forEach(function(player) {
                 if (!seasonScorers[player]) return;
-                if (player === AUTOGOAL) return;
+                if (player === AUTOGOAL) return; // Автоголу игры через состав не идут
 
                 seasonScorers[player].games += 1;
 
-                if (playersOfTeam1.indexOf(player) !== -1) {
-                    seasonScorers[player].winPts += 3;
-                } else if (playersOfTeam2.indexOf(player) !== -1) {
-                    seasonScorers[player].winPts += 2;
-                } else if (playersOfTeam3.indexOf(player) !== -1) {
-                    seasonScorers[player].winPts += 1;
+                let teamOfPlayer = playerTeamToday[player];
+                if (teamOfPlayer && dayPts[teamOfPlayer] !== undefined) {
+                    seasonScorers[player].winPts += dayPts[teamOfPlayer];
                 }
             });
 
+            // Игры Автогола = число матчей, где у него есть голы
             if (seasonScorers[AUTOGOAL] && autogoalMatchIds.size > 0) {
                 seasonScorers[AUTOGOAL].games += autogoalMatchIds.size;
             }
             if (seasonScorers[AUTOGOAL]) seasonScorers[AUTOGOAL].winPts = 0;
 
+            // 5. Сохраняем в Firebase
             await fetch(FIREBASE_URL + "/season_archive.json", {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ seasonScorers: seasonScorers, processedMatchIds: processedMatchIds })
             });
 
-            let statusMsg = "Рейтинг обновлен! Занесено матчей: " + newMatchesCount;
+            // 6. Отчёт
+            let dayPtsText = Object.keys(dayPts).map(function(t) {
+                return t + ": " + dayPts[t];
+            }).join(", ");
+
+            let statusMsg = "Рейтинг обновлён! Новых матчей: " + newMatchesCount +
+                            ". Очки команд за день: " + dayPtsText + ".";
             if (skippedPlayers.size > 0) {
-                statusMsg += ". Пропущены (нет в таблице): " + Array.from(skippedPlayers).join(', ');
+                statusMsg += " Пропущены (нет в таблице): " + Array.from(skippedPlayers).join(', ') + ".";
             }
             document.getElementById('sync-status').innerText = statusMsg;
             
-            let alertMsg = "Синхронизация завершена! Всем участникам из таблицы начислен +1 игровой день. " +
-                           "Места команд дня: 1-е → +3, 2-е → +2, 3-е → +1.";
+            let alertMsg = "Синхронизация завершена!\n" +
+                           "Занесено новых матчей: " + newMatchesCount + ".\n" +
+                           "Очки команд за этот день:\n" +
+                           Object.keys(dayPts).map(function(t) { return "— " + t + ": " + dayPts[t]; }).join("\n") +
+                           "\n\nКаждому игроку команды к «Рейт.П» прибавлены очки его команды за день, " +
+                           "а также +1 к «Игры».";
             if (skippedPlayers.size > 0) {
                 alertMsg += "\n\nВНИМАНИЕ: следующие игроки есть в составе, но отсутствуют в таблице рейтинга, поэтому статистика им НЕ начислена:\n— " +
                             Array.from(skippedPlayers).join("\n— ") +
