@@ -162,7 +162,13 @@
     let seasonScorers = {}; 
     let processedMatchIds = []; 
     
-    let currentSortColumn = 'avgRating'; 
+    // Сортировка по умолчанию:
+    // 1) Голы — больше выше
+    // 2) Игры — меньше выше
+    // 3) Сред.Р — больше выше
+    // 4) Имя — по алфавиту
+    // currentSortColumn === 'default' — это не колонка таблицы, а «режим по умолчанию».
+    let currentSortColumn = 'default'; 
     let currentSortDirection = 'desc'; 
 
     function activateAdminMode() {
@@ -256,16 +262,28 @@
             };
         });
 
-        playersArray.sort(function(a, b) {
-            let valA = a[currentSortColumn];
-            let valB = b[currentSortColumn];
+        // Сортировка:
+        // - 'default': голы ↓, игры ↑, сред.Р ↓, имя A→Z
+        // - иначе: по выбранной колонке и направлению
+        if (currentSortColumn === 'default') {
+            playersArray.sort(function(a, b) {
+                if (b.goals !== a.goals) return b.goals - a.goals;        // больше голов — выше
+                if (a.games !== b.games) return a.games - b.games;        // меньше игр — выше
+                if (b.avgRating !== a.avgRating) return b.avgRating - a.avgRating; // больше сред.Р — выше
+                return a.name.localeCompare(b.name);                       // по алфавиту
+            });
+        } else {
+            playersArray.sort(function(a, b) {
+                let valA = a[currentSortColumn];
+                let valB = b[currentSortColumn];
 
-            if (typeof valA === 'string') {
-                return currentSortDirection === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
-            } else {
-                return currentSortDirection === 'asc' ? valA - valB : valB - valA;
-            }
-        });
+                if (typeof valA === 'string') {
+                    return currentSortDirection === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+                } else {
+                    return currentSortDirection === 'asc' ? valA - valB : valB - valA;
+                }
+            });
+        }
 
         let tbody = document.getElementById('season-scorers-body');
         if (!tbody) return;
@@ -275,16 +293,13 @@
             return;
         }
 
-        // --- Группировка по числу голов для подсветки ---
-        // Считаем только реальных игроков (без Автогола) для назначения цветов.
-        // Автогол всегда подсвечивается своим autogoal-цветом.
+        // Группировка по голам для подсветки (только реальные игроки, без Автогола)
         var goalsCounts = {};
         playersArray.forEach(function(p) {
             if (p.name === AUTOGOAL) return;
             var g = p.goals || 0;
             goalsCounts[g] = (goalsCounts[g] || 0) + 1;
         });
-        // Уникальные значения голов, где есть хотя бы 2 игрока с таким числом
         var groupedGoalsValues = Object.keys(goalsCounts)
             .map(Number)
             .filter(function(g) { return goalsCounts[g] >= 2; })
@@ -295,7 +310,6 @@
             goalColorMap[g] = 'goals-group-' + ((idx % 8) + 1);
         });
 
-        // Определяем максимум голов среди реальных игроков для «жирного» шрифта
         var maxGoalsReal = 0;
         playersArray.forEach(function(p) {
             if (p.name !== AUTOGOAL) {
@@ -311,10 +325,8 @@
             if (isAuto) {
                 rowClasses.push('autogoal-row');
             } else {
-                // Подсветка, если у этого значения голов есть «напарник»
                 let gcls = goalColorMap[p.goals];
                 if (gcls) rowClasses.push(gcls);
-                // «Топ» — если это максимум голов (только среди реальных)
                 if (p.goals === maxGoalsReal && p.goals > 0) rowClasses.push('goals-top');
             }
 
@@ -529,7 +541,6 @@
             let currentTeams = tournamentData.teams || ["Команда 1", "Команда 2", "Команда 3"];
             let currentTeamPlayers = tournamentData.teamPlayers || {};
             
-            // 1. СЧИТАЕМ ИТОГОВЫЕ МЕСТА КОМАНД ДНЯ (1, 2, 3)
             let dayStats = {};
             currentTeams.forEach(function(t) {
                 dayStats[t] = { pts: 0, gf: 0 };
@@ -557,10 +568,8 @@
             let newMatchesCount = 0;
             let activePlayersToday = new Set();
             let skippedPlayers = new Set();
-            // Игры Автогола: считаем матчи, в которых есть его голы.
             let autogoalMatchIds = new Set();
 
-            // 2. РАСПРЕДЕЛЯЕМ ГОЛЫ И ФИКСИРУЕМ УЧАСТИЕ
             currentGames.forEach(function(game) {
                 if (game && game.id && processedMatchIds.indexOf(game.id) === -1) {
                     if (game.scorers1) {
@@ -614,14 +623,13 @@
                 return;
             }
 
-            // 3. НАЧИСЛЯЕМ ИГРЫ И БАЛЛЫ ЗА МЕСТА
             let playersOfTeam1 = (currentTeamPlayers[firstPlaceTeam] || []).map(function(p){ return p.trim(); });
             let playersOfTeam2 = (currentTeamPlayers[secondPlaceTeam] || []).map(function(p){ return p.trim(); });
             let playersOfTeam3 = (currentTeamPlayers[thirdPlaceTeam] || []).map(function(p){ return p.trim(); });
 
             activePlayersToday.forEach(function(player) {
                 if (!seasonScorers[player]) return;
-                if (player === AUTOGOAL) return; // Автоголу игры через состав не идут
+                if (player === AUTOGOAL) return;
 
                 seasonScorers[player].games += 1;
 
@@ -634,15 +642,11 @@
                 }
             });
 
-            // Игры Автогола = число матчей, где у него есть голы.
-            // processedMatchIds уже включает эти матчи, так что повторно не прибавим.
             if (seasonScorers[AUTOGOAL] && autogoalMatchIds.size > 0) {
                 seasonScorers[AUTOGOAL].games += autogoalMatchIds.size;
             }
-            // winPts Автогола всегда 0
             if (seasonScorers[AUTOGOAL]) seasonScorers[AUTOGOAL].winPts = 0;
 
-            // 4. СОХРАНЯЕМ В FIREBASE
             await fetch(FIREBASE_URL + "/season_archive.json", {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -678,9 +682,8 @@
             return;
         }
 
-        // Дополнительный пароль для опасной зоны
         let pin = prompt("Для полного удаления статистики сезона введите пароль:");
-        if (pin === null) return; // отменили ввод
+        if (pin === null) return;
         if (pin !== RESET_PASSWORD) {
             alert("Неверный пароль! Сброс отменён.");
             let statusEl = document.getElementById('reset-status');
